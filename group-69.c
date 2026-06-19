@@ -49,11 +49,11 @@ void signal_handler(int signal) {
     if (signal == SIGINT) {
         printf("Got the CTRL+C command, exiting from the shell\n");
         givefullHistory(prev_history, numCommands);
-    }
-    exit(0);
+    } 
+    exit(0);// exit 0 leaves the current process("process" not function)
 }
 
-
+//SIGINT is for Ctrl+ C and SIGSTP is for Ctrl + Z
 
 int main(int argc, char *argv[]){
     char* line=NULL;
@@ -66,7 +66,8 @@ int main(int argc, char *argv[]){
         struct timespec tstart, tend;
         CommandInfo command;//creation of struct
 
-        getline(&line, &len, stdin);
+        //stdin(standard input usually the terminal) is where to read the input from 
+        getline(&line, &len, stdin);// will get the line whenever user types something and presses enter
         strip_newline(line);// to remove the newlie character "\n" from the end of the string
         
 
@@ -76,10 +77,11 @@ int main(int argc, char *argv[]){
         }
 
         // making an argument array 
-        command.storecommand= malloc(strlen(line) + 1);
+        command.storecommand= malloc(strlen(line) + 1);// + 1 to accomodate the null terminator
+        //strlen doesn't count the "\0", but it counts the"\n" 
         strcpy(command.storecommand,line);
 
-        char ***argArr = malloc(100 * sizeof *argArr);
+        char ***argArr = malloc(100 * sizeof *argArr); // to store all pipe separated commands
         int pipe_commands=0;
 
         // cat file.c | grep main | wc -l
@@ -87,16 +89,17 @@ int main(int argc, char *argv[]){
         int offset=0;
         int iterator=0;
         while (iterator != (int)strlen(line)) {
-            char **args = calloc(50, sizeof *args);                 // FIX: zero-init argv
-            int len = 0;
-            int count = 0;
+            char **args = calloc(50, sizeof *args);  // FIX: zero-init argv
+            // here calloc is usesful because execvp needs a null terminated list
+            int len = 0; //is the number of char for the current token
+            int count = 0;// counts the number of arguments( tokens) in a single command
             bool flag = false;
 
             for (int i = iterator; i < (int)strlen(line); i++) {
                 // printf("%c", line[i]);
 
                 if (line[i] == ' ') {
-                    if (len > 0) {                                   // FIX: only flush if we have a token
+                    if (len > 0) {// FIX: only flush if we have a token(one word, or meaningful piece of text extracted from a string)
                         args[count++] = strndup(line + offset, (size_t)len);
                         args[count] = NULL;
                         len = 0;
@@ -154,26 +157,33 @@ int main(int argc, char *argv[]){
 
 
         char buffer[50];
+
         time_t now = time(NULL);
         struct tm *local = localtime(&now);
         strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", local);
         command.start = malloc(strlen(buffer) + 1);
         strcpy(command.start, buffer);
+
         clock_gettime(CLOCK_MONOTONIC, &tstart);
 
         
         int n = pipe_commands;
-        int pipes[n][2];                 
+        int pipes[n][2];  
+        //Each Unix pipe consists of two file descriptors:
+
+        // pipe[0] -> read end
+        // pipe[1] -> write end
+
         
 
         for (int i = 0; i < n; ++i) {
             if (pipe(pipes[i]) == -1) { 
                 printf("pipe error"); 
-                exit(1);
+                exit(1);// exit status 1 denotes pipe error
             }
         }
 
-        pid_t *pids = malloc(n * sizeof *pids);
+        pid_t *pids = malloc(n * sizeof *pids); // stores all children pids(children refers to each individual command)
         if (!pids) { 
             printf("malloc error");
             continue; 
@@ -187,13 +197,13 @@ int main(int argc, char *argv[]){
             }
             if (cpid == 0) {
                 // Child i: hook up stdin/stdout as needed
-                if (i > 0) {                 // not first: stdin <- previous pipe read end
+                if (i > 0) { // not first: stdin <- previous pipe read end( read the output of the prev command)
                     if (dup2(pipes[i-1][0], STDIN_FILENO) == -1) { 
                         printf("dup2 error"); 
                         exit(1); 
                     }
                 }
-                if (i < n - 1) {             // not last: stdout -> current pipe write end
+                if (i < n - 1) {// not last: stdout -> current pipe write end( write the output of the current command into the pipe)
                     if (dup2(pipes[i][1], STDOUT_FILENO) == -1) { 
                         printf("dup2 error"); 
                         exit(1); 
@@ -207,7 +217,7 @@ int main(int argc, char *argv[]){
                 // Exec this stage
                 execvp(argArr[i][0], argArr[i]);
                 printf("execvp error");
-                exit(1);                  // exec failed
+                exit(1); // exec failed
             }
             pids[i] = cpid;
         }
@@ -237,7 +247,7 @@ int main(int argc, char *argv[]){
         command.end = malloc(strlen(buffer) + 1);
         strcpy(command.end, buffer);
 
-        command.pid = last_pid;                            // store pid of last stage
+        command.pid = last_pid;// store pid of last stage
         long long ms = (tend.tv_sec - tstart.tv_sec) * 1000LL + (tend.tv_nsec - tstart.tv_nsec) / 1000000LL;
         command.total_duration = ms;
 
@@ -245,6 +255,15 @@ int main(int argc, char *argv[]){
         if (WIFEXITED(last_status) && WEXITSTATUS(last_status)) {
             continue;   // non-zero exit code from last command; skip history add
         }
+        
+        //WIFEXITED: 
+        // Acts like a boolean:
+        // Non-zero (true) → process exited normally using exit() or return
+        // 0 (false) → process did not exit normally (e.g., killed by a signal)
+
+        //WEXITSTATUS : it outputs the actual exit code of the process
+
+        // the above two just decode the status integer
 
         if (WIFEXITED(last_status)) {
             prev_history = realloc(prev_history, (numCommands + 1) * sizeof(CommandInfo));
@@ -254,6 +273,7 @@ int main(int argc, char *argv[]){
             }
             prev_history[numCommands++] = command;
         } 
+        // we only store commands if they are executed successfully
    
 
     }
